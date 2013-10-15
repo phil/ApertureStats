@@ -1,0 +1,160 @@
+#! /usr/bin/env ruby
+
+require "thor"
+require "singleton"
+require "sqlite3"
+require "terminal-table"
+
+module ApertureStats
+
+  class Config
+    include Singleton
+
+    def aperture_properties_path
+      "/Users/phil/Desktop/Properties.apdb"
+    end
+
+    def connection
+      SQLite3::Database.new aperture_properties_path
+    end
+
+  end
+
+  class CLI < Thor
+    # contents of the Thor class
+    #
+
+    desc "overview", "displays the complete output"
+    def overview
+      makes
+      models
+      lenses
+    end
+
+    desc "makes", "display library make information"
+    option :verbose, :aliases => :v
+    def makes
+      BasicOverview.new("Make").results
+    end
+
+    desc "models", "displays models"
+    def models
+      BasicOverview.new("Model").results
+    end
+
+    desc "lenses", "displays lenses"
+    def lenses
+      BasicOverview.new("LensModel").results
+    end
+
+    desc "isos", "displays isos"
+    def isos
+      BasicOverview.new("ISOSpeedRating").results
+    end
+    desc "apertures", "displays apertures"
+    def apertures
+      BasicOverview.new("ApertureValue").results
+    end
+
+    desc "version", ""
+    def version
+      puts "aperture_stats version: 0.1"
+    end
+  end
+
+  class BasicOverview
+    attr_accessor :name
+
+    def initialize name
+      self.name = name
+    end
+
+    def results
+
+      table = Terminal::Table.new do |t|
+
+        unless STDOUT.tty?
+          t.style.border_x = ""
+          t.style.border_y = ""
+          t.style.border_i = ""
+          t.style.padding_left = 0
+          t.style.padding_right = 1
+          t.style.width = nil
+        end
+
+        Config.instance.connection.prepare(self.sql) do |statement|
+          t.add_row statement.columns
+          t.add_separator
+          statement.execute "name" => name do |recordset|
+            recordset.each do |row|
+              t.add_row row
+            end
+          end
+        end
+
+      end
+
+      puts table
+
+    end
+
+    def type
+      case self.name
+      when "Make", "Model", "LensModel"
+        :string
+      when "ApertureValue", "ISOSpeedRating", "ShutterSpeed", "Flash", "CaptureYear", "CaptureMonthOfYear", "CaptureDayOfMonth", "CaptureDayOfWeek", "CaptureHourOfDay"
+        :number
+      end
+    end
+
+    protected
+
+    def sql
+      case self.type
+      when :number
+        <<-SQL
+        select count(t.modelid) as number, numberproperty as #{name} from rkexifnumberproperty t
+        where propertykey = :name
+        group by numberproperty
+        SQL
+      when :string
+        <<-SQL
+        select count(t.modelid) as number, s.stringProperty as #{name} from rkexifstringproperty t
+        inner join (select stringProperty, modelid from rkuniquestring) s on s.modelid = t.stringid
+        where propertykey = :name /* use any of 'LensModel', 'Model' */
+        group by propertykey, stringId
+        SQL
+      end
+    end
+  end
+
+end
+
+ApertureStats::CLI.start(ARGV)
+
+#makes = ApertureStats::Makes.new
+#makes.where name: "Canon"
+#makes.results
+
+#models = ApertureStats::Models.new
+#models.where :make => "Canon"
+#models.results
+
+
+__END__
+
+
+aperture_stats makes
+aperture_stats cameras --make="canon"
+aperture_stats lenses --camera="eos-m" --make="canon"
+
+aperture_stats iso
+aperture_stats shutter
+aperture_stats aperture
+
+aperture_stats help
+aperture_stats version
+
+Global switches
+--from=DATE
+--to=DATE
