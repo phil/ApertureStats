@@ -20,47 +20,6 @@ module ApertureStats
 
   end
 
-  class CLI < Thor
-    # contents of the Thor class
-    #
-
-    desc "overview", "displays the complete output"
-    def overview
-      makes
-      models
-      lenses
-    end
-
-    desc "makes", "display library make information"
-    option :verbose, :aliases => :v
-    def makes
-      BasicOverview.new("Make").results
-    end
-
-    desc "models", "displays models"
-    def models
-      BasicOverview.new("Model").results
-    end
-
-    desc "lenses", "displays lenses"
-    def lenses
-      BasicOverview.new("LensModel").results
-    end
-
-    desc "isos", "displays isos"
-    def isos
-      BasicOverview.new("ISOSpeedRating").results
-    end
-    desc "apertures", "displays apertures"
-    def apertures
-      BasicOverview.new("ApertureValue").results
-    end
-
-    desc "version", ""
-    def version
-      puts "aperture_stats version: 0.1"
-    end
-  end
 
   class BasicOverview
     attr_accessor :name
@@ -98,11 +57,18 @@ module ApertureStats
 
     end
 
+
+    STRING_TYPES = ["Make", "Model", "LensModel"]
+    NUMBER_TYPES = ["ApertureValue", "ISOSpeedRating", "ShutterSpeed", "Flash", "CaptureYear", "CaptureMonthOfYear", "CaptureDayOfMonth", "CaptureDayOfWeek", "CaptureHourOfDay"]
+    def self.types
+      STRING_TYPES | NUMBER_TYPES
+    end
+
     def type
       case self.name
-      when "Make", "Model", "LensModel"
+      when *STRING_TYPES
         :string
-      when "ApertureValue", "ISOSpeedRating", "ShutterSpeed", "Flash", "CaptureYear", "CaptureMonthOfYear", "CaptureDayOfMonth", "CaptureDayOfWeek", "CaptureHourOfDay"
+      when *NUMBER_TYPES
         :number
       end
     end
@@ -116,6 +82,7 @@ module ApertureStats
         select count(t.modelid) as number, numberproperty as #{name} from rkexifnumberproperty t
         where propertykey = :name
         group by numberproperty
+        order by numberproperty
         SQL
       when :string
         <<-SQL
@@ -123,8 +90,33 @@ module ApertureStats
         inner join (select stringProperty, modelid from rkuniquestring) s on s.modelid = t.stringid
         where propertykey = :name /* use any of 'LensModel', 'Model' */
         group by propertykey, stringId
+        order by stringProperty
         SQL
       end
+    end
+  end
+
+  class CLI < Thor
+    # contents of the Thor class
+    #
+
+    desc "overview", "displays the complete output"
+    def overview
+      ApertureStats::BasicOverview.types.each do |type|
+        ApertureStats::BasicOverview.new(type).results
+      end
+    end
+
+    ApertureStats::BasicOverview.types.each do |type|
+      desc type.downcase, "display basic #{type} information"
+      define_method :"#{type.downcase}" do
+        ApertureStats::BasicOverview.new(type).results
+      end
+    end
+
+    desc "version", ""
+    def version
+      puts "aperture_stats version: 0.1"
     end
   end
 
